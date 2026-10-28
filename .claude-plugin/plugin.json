@@ -1,0 +1,6 @@
+{
+  "name": "oficina",
+  "version": "0.1.0",
+  "description": "Una oficina en pixel art donde cada subagente o agente de workflow es un Clawd que llega a su escritorio, trabaja y sale por la puerta al terminar.",
+  "types": "./types/index.d.ts"
+}

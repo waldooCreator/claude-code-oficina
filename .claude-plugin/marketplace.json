@@ -1,0 +1,11 @@
+{
+  "name": "claude-code-oficina",
+  "owner": { "name": "waldooCreator" },
+  "plugins": [
+    {
+      "name": "oficina",
+      "source": "./",
+      "description": "Una oficina en pixel art donde cada agente de Claude Code es un Clawd que llega a su escritorio, trabaja y sale por la puerta al terminar."
+    }
+  ]
+}
