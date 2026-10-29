@@ -79,6 +79,8 @@ El mod se engancha a los eventos de Claude Code:
 
 La escena es un `Raster`: una cuadrícula de celdas donde cada celda usa el carácter `▀` con un color arriba y otro abajo, así que cada celda da dos píxeles cuadrados. Se repinta unas 11 veces por segundo con `$.ui.blit`, sin redibujar el resto de la interfaz.
 
+En la app de escritorio (y en el editor y el teléfono) no existe `Raster`: ahí la misma escena se dibuja como `Svg`, un píxel por unidad, y el panel se redibuja en cada paso de la animación (el motor lo limita a 10 veces por segundo).
+
 ```
 hooks/register.tsx   los hooks: sigue a los agentes y abre o cierra el panel
 hooks/scene.ts       la oficina: simulación, sprites y pintado en celdas

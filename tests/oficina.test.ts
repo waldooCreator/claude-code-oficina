@@ -133,6 +133,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const clock = mock.clock(on, { now: 1_000 })
     const log: Log = { opens: [], closes: [], blits: [], writes: [], status: [] }
     engine(on, log)
+    let invalidates = 0
+    on('ui.invalidate', () => {
+      invalidates++
+      return { value: undefined }
+    })
     await terminal($, true)
 
     await $.agent.spawn(SPAWN as never)
@@ -169,6 +174,17 @@ for (const surface of ['terminal', 'desktop'] as const) {
       await clock.advance(90)
       expect(log.blits.length).toBeGreaterThan(0)
       expect(log.blits.at(-1)).toMatchObject({ columns: 48, rows: props.rows })
+    } else {
+      // No Raster off the terminal: the scene is an Svg, redrawn on every tick.
+      const svg = await ui.find({ type: 'Svg' })
+      expect(svg).toBeDefined()
+      const source = (svg!.props as { source: string }).source
+      expect(source.startsWith('<svg')).toBe(true)
+      expect(source.length).toBeLessThan(131072)
+      const before = invalidates
+      await clock.advance(90)
+      expect(invalidates).toBeGreaterThan(before)
+      expect(log.blits).toHaveLength(0)
     }
     expect(await ui.find({ text: /Revisar modulo/ })).toBeDefined()
     await ui.unmount()

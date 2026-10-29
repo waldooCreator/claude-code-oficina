@@ -204,6 +204,14 @@ export function toBase64(bytes: Uint8Array): string {
   return out
 }
 
+function hex(color: number): string {
+  return '#' + color.toString(16).padStart(6, '0')
+}
+
+function xml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 export class Office {
   private agents = new Map<string, OfficeAgent>()
   private order: string[] = []
@@ -307,13 +315,21 @@ export class Office {
     this.moveDoor()
   }
 
-  // The scene as Raster cells, `columns * rows`, base64 as RasterProps packs them.
-  cells(columns: number, rows: number): string {
+  // The scene painted at this size: its pixels and the texts over them.
+  private frame(columns: number, rows: number): { px: Uint32Array; texts: TextRun[] } {
     this.resize(columns, rows)
     const { W, H } = this.L
     const px = new Uint32Array(W * H)
     const texts: TextRun[] = []
     this.paint(px, texts)
+
+    return { px, texts }
+  }
+
+  // The scene as Raster cells, `columns * rows`, base64 as RasterProps packs them.
+  cells(columns: number, rows: number): string {
+    const { px, texts } = this.frame(columns, rows)
+    const { W } = this.L
 
     const words = new Uint32Array(W * rows * 3)
     for (let r = 0; r < rows; r++) {
@@ -342,6 +358,83 @@ export class Office {
     }
 
     return toBase64(new Uint8Array(words.buffer))
+  }
+
+  // The scene as SVG markup, for the surfaces without Raster (the desktop app,
+  // the editor, the phone): one unit per pixel, and each text cell one unit
+  // wide and two tall over its background, as the terminal draws it.
+  svg(columns: number, rows: number): string {
+    const { px, texts } = this.frame(columns, rows)
+    const { W, H } = this.L
+
+    // The text cells, the last run written over a cell winning, as in cells().
+    const glyph: (string | undefined)[] = new Array(W * rows)
+    const fg = new Uint32Array(W * rows)
+    const bg = new Uint32Array(W * rows)
+    for (const run of texts) {
+      if (run.row < 0 || run.row >= rows) continue
+      let col = run.col
+      for (const ch of run.text) {
+        if (col >= W) break
+        if (col >= 0) {
+          const at = run.row * W + col
+          glyph[at] = ch
+          fg[at] = run.fg
+          bg[at] = run.bg ?? px[2 * run.row * W + col]!
+        }
+        col++
+      }
+    }
+    // A text cell hides both of its pixels behind its background.
+    for (let at = 0; at < W * rows; at++) {
+      if (glyph[at] === undefined) continue
+      const r = Math.floor(at / W)
+      const c = at % W
+      px[2 * r * W + c] = bg[at]!
+      px[(2 * r + 1) * W + c] = bg[at]!
+    }
+
+    // Runs of one color along each pixel row, one path per color.
+    const paths = new Map<number, string>()
+    for (let y = 0; y < H; y++) {
+      let x = 0
+      while (x < W) {
+        const color = px[y * W + x]!
+        let end = x + 1
+        while (end < W && px[y * W + end] === color) end++
+        paths.set(color, (paths.get(color) ?? '') + `M${x} ${y}h${end - x}v1h${x - end}`)
+        x = end
+      }
+    }
+
+    // Runs of one color along each text row, each squeezed to one unit a character.
+    const words: string[] = []
+    for (let r = 0; r < rows; r++) {
+      let c = 0
+      while (c < W) {
+        const at = r * W + c
+        if (glyph[at] === undefined) {
+          c++
+          continue
+        }
+        let text = ''
+        let end = c
+        while (end < W && glyph[r * W + end] !== undefined && fg[r * W + end] === fg[at]) text += glyph[r * W + end++]
+        if (text.trim()) {
+          words.push(
+            `<text x="${c}" y="${2 * r + 1.6}" textLength="${end - c}" lengthAdjust="spacingAndGlyphs" fill="${hex(fg[at]!)}">${xml(text)}</text>`,
+          )
+        }
+        c = end
+      }
+    }
+
+    return (
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W * 8}" height="${H * 8}" shape-rendering="crispEdges">` +
+      [...paths].map(([color, d]) => `<path fill="${hex(color)}" d="${d}"/>`).join('') +
+      `<g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="1.7" font-weight="bold">${words.join('')}</g>` +
+      '</svg>'
+    )
   }
 
   // ---- people ----

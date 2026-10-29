@@ -14,6 +14,10 @@ const LIST_MAX = 6
 // The list under the scene always takes this many rows, so an arrival never
 // resizes the scene (a resize skips everyone's walk).
 const LIST_ROWS = LIST_MAX + 2
+// Off the terminal the scene is an Svg drawn whole on every frame; this keeps
+// its markup well under the element's 131072 characters.
+const SVG_MAX_COLUMNS = 120
+const SVG_MAX_ROWS = 40
 const LIST_GRACE_MS = 10_000 // how long a new agent may be missing from $.agent.list()
 const WORKFLOW_SILENCE_MS = 15 * 60_000 // a workflow agent this quiet has ended unseen
 
@@ -30,6 +34,8 @@ const silenced = new Set<string>()
 let terminalColumns = 0
 let isFullscreen: boolean | undefined
 let mounted: { columns: number; rows: number } | undefined
+// A surface without Raster draws the pane: each tick redraws it, no blit there.
+let isDrawnAsSvg = false
 let isDismissed = false
 let isDirty = false
 let isPolling = false
@@ -66,6 +72,7 @@ async function openPane($: EngineInterface, isAsked: boolean): Promise<boolean> 
 
 async function closePane($: EngineInterface): Promise<void> {
   mounted = undefined
+  isDrawnAsSvg = false
   await $.state.set(autoRef, false)
   await $.ui.close({ id: PANE })
 }
@@ -96,6 +103,9 @@ async function tick($: EngineInterface): Promise<void> {
 
   if (office.isBusy) quietTicks = 0
   else if (++quietTicks >= CLOSE_AFTER) return endBatch($)
+
+  // The engine folds these to ten redraws a second.
+  if (isDrawnAsSvg) $.ui.invalidate('ui.render')
 
   const drawn = mounted
   if (drawn) {
@@ -309,6 +319,7 @@ export const register: Register = on => {
     const result = await next(e)
     if (e.id === PANE) {
       mounted = undefined
+      isDrawnAsSvg = false
       if (e.origin.kind === 'person' && office.isBusy) isDismissed = true
     }
 
@@ -400,10 +411,18 @@ export const register: Register = on => {
     const hidden = shown.length - lines.length
 
     if (e.surface !== 'terminal') {
-      const { Box, Text } = $.ui.resolve(e)
+      const { Box, Text, Svg } = $.ui.resolve(e)
+      const sceneColumns = Math.min(SVG_MAX_COLUMNS, columns)
+      const sceneRows = Math.min(SVG_MAX_ROWS, Math.max(MIN_SCENE_ROWS, e.props.scroll.bodyRows - LIST_ROWS))
+      const n = office.counts()
+      isDrawnAsSvg = true
 
       return (
         <Box flexDirection="column">
+          <Svg
+            source={office.svg(sceneColumns, sceneRows)}
+            alt={`Oficina: ${n.working} trabajando, ${n.done} listas${n.failed > 0 ? `, ${n.failed} fallidas` : ''}`}
+          />
           {shown.length === 0 && <Text dimColor>Nadie trabajando ahora.</Text>}
           {shown.map(a => (
             <Text>
